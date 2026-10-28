@@ -77,6 +77,8 @@ nav.tabs button.on{color:var(--ink);border-bottom-color:var(--accent)}
 .stu.s-조퇴{background:var(--early-bg);border-color:var(--early)}
 .stu.s-결과{background:var(--res-bg);border-color:var(--res)}
 .stu.s-결석 .tag{background:var(--abs);color:#fff}
+.stu .x{position:absolute;right:10px;bottom:4px;font-size:34px;font-weight:900;line-height:1;color:var(--abs)}
+.stu.s-결석 .nm{text-decoration:line-through;text-decoration-color:var(--abs)}
 .stu.s-지각 .tag{background:var(--late);color:#fff}
 .stu.s-조퇴 .tag{background:var(--early);color:#fff}
 .stu.s-결과 .tag{background:var(--res);color:#fff}
@@ -157,7 +159,7 @@ td.n{text-align:center;font-variant-numeric:tabular-nums}
         <span class="spacer"></span>
         <button class="btn" id="resetSession">모두 출석으로</button>
       </div>
-      <p class="muted" style="margin:8px 0 0">학생 이름을 눌러 결석·지각·조퇴·결과를 표시하세요. 표시하는 즉시 저장됩니다.</p>
+      <p class="muted" style="margin:8px 0 0">결석한 학생을 한 번 누르면 <b style="color:var(--abs)">X</b>, 다시 누르면 취소돼요. 누르는 즉시 저장됩니다.</p>
       <div class="grid" id="stuGrid"></div>
     </div>
   </section>
@@ -167,9 +169,7 @@ td.n{text-align:center;font-variant-numeric:tabular-nums}
     <div class="panel">
       <div class="row">
         <label class="muted">뽑을 인원 <input type="number" id="drawN" min="1" value="1" style="width:70px"></label>
-        <label class="muted"><input type="checkbox" id="noRepeat" checked> 이번 시간에 뽑힌 학생 제외</label>
-        <label class="muted"><input type="checkbox" id="incLate" checked> 지각생 포함</label>
-        <span class="spacer"></span>
+        <label class="muted"><input type="checkbox" id="noRepeat" checked> 이번 시간에 뽑힌 학생 제외</label>        <span class="spacer"></span>
         <span class="chip" id="poolInfo"></span>
       </div>
       <div class="stage" id="stage" style="margin-top:12px">
@@ -238,21 +238,6 @@ td.n{text-align:center;font-variant-numeric:tabular-nums}
   </section>
 </div>
 
-<div class="modal hidden" id="modal">
-  <div class="sheet">
-    <h3 id="mName"></h3>
-    <div class="seg" id="mSeg"></div>
-    <div id="mReasonWrap">
-      <div class="muted" style="margin-bottom:6px">사유</div>
-      <div class="reasons" id="mReasons"></div>
-    </div>
-    <input type="text" id="mMemo" placeholder="메모 (선택)">
-    <div class="row" style="margin-top:14px;justify-content:flex-end">
-      <button class="btn" id="mCancel">취소</button>
-      <button class="btn primary" id="mSave">저장</button>
-    </div>
-  </div>
-</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -322,45 +307,26 @@ function renderAtt(){
   const cnt = Object.fromEntries(STATUSES.map(s => [s, 0]));
   grid.innerHTML = cls.students.map(st => {
     const m = statusOf(sess, st.id); cnt[m.s]++;
-    const sub = m.s === '출석' ? '' : `<span class="tag">${m.s}</span><span class="rs">${esc([m.r, m.m].filter(Boolean).join(' · '))}</span>`;
+    const sub = m.s === '결석' ? '<span class="x">X</span>' : m.s === '출석' ? '' : `<span class="tag">${m.s}</span>`;
     return `<button class="stu s-${m.s}" data-sid="${st.id}"><span class="no">${esc(st.no || '')}</span><span class="nm">${esc(st.name)}</span>${sub}</button>`;
   }).join('');
   $('#attChips').innerHTML = `<span class="chip">재적 ${cls.students.length}</span>` +
-    STATUSES.map(s => (s === '출석' || cnt[s]) ? `<span class="chip c-${s}">${s} ${cnt[s]}</span>` : '').join('');
+    `<span class="chip c-출석">출석 ${cls.students.length - cnt['결석']}</span>` +
+    (cnt['결석'] ? `<span class="chip c-결석">결석 ${cnt['결석']}</span>` : '');
 }
 
-let editing = null;
-function openMark(sid){
-  const cls = curClass(); const st = cls.students.find(x => x.id === sid);
-  const m = statusOf(getSess(false), sid);
-  editing = { sid, s: m.s, r: m.r || '', m: m.m || '' };
-  $('#mName').textContent = `${st.no ? st.no + ' ' : ''}${st.name}`;
-  $('#mMemo').value = editing.m;
-  drawMark();
-  $('#modal').classList.remove('hidden');
-}
-function drawMark(){
-  $('#mSeg').innerHTML = STATUSES.map(s => `<button class="s-${s} ${editing.s === s ? 'on' : ''}" data-s="${s}">${s}</button>`).join('');
-  $('#mReasons').innerHTML = REASONS.map(r => `<button class="${editing.r === r ? 'on' : ''}" data-r="${r}">${r}</button>`).join('');
-  $('#mReasonWrap').classList.toggle('hidden', editing.s === '출석');
-}
-$('#mSeg').onclick = e => { const b = e.target.closest('button'); if (!b) return; editing.s = b.dataset.s; if (editing.s === '출석') editing.r = ''; drawMark(); };
-$('#mReasons').onclick = e => { const b = e.target.closest('button'); if (!b) return; editing.r = editing.r === b.dataset.r ? '' : b.dataset.r; drawMark(); };
-$('#mCancel').onclick = () => $('#modal').classList.add('hidden');
-$('#modal').onclick = e => { if (e.target.id === 'modal') $('#modal').classList.add('hidden'); };
-$('#mSave').onclick = () => {
-  const sess = getSess(true);
-  const memo = $('#mMemo').value.trim();
-  if (editing.s === '출석' && !memo) delete sess.marks[editing.sid];
-  else sess.marks[editing.sid] = Object.assign({ s: editing.s }, editing.r && { r: editing.r }, memo && { m: memo });
+$('#stuGrid').onclick = e => {
+  const b = e.target.closest('.stu'); if (!b) return;
+  const sess = getSess(true), sid = b.dataset.sid;
+  if (statusOf(sess, sid).s === '출석') sess.marks[sid] = { s: '결석' };
+  else delete sess.marks[sid];
   sess.checked = true;
-  save(); $('#modal').classList.add('hidden'); renderAtt();
+  save(); renderAtt();
 };
-$('#stuGrid').onclick = e => { const b = e.target.closest('.stu'); if (b) openMark(b.dataset.sid); };
 $('#resetSession').onclick = () => {
   const s = getSess(false);
   if (!s || !Object.keys(s.marks).length) return;
-  if (!confirm('이번 시간의 결석·지각 표시를 모두 지우고 출석으로 되돌릴까요?')) return;
+  if (!confirm('이번 시간의 결석 표시를 모두 지울까요?')) return;
   s.marks = {}; pruneSess(); save(); renderAtt();
 };
 
@@ -368,9 +334,8 @@ $('#resetSession').onclick = () => {
 function pool(){
   const cls = curClass(); if (!cls) return [];
   const sess = getSess(false);
-  const ok = $('#incLate').checked ? ['출석', '지각'] : ['출석'];
   const drawn = new Set(sess ? sess.drawn : []);
-  return cls.students.filter(st => ok.includes(statusOf(sess, st.id).s) && !($('#noRepeat').checked && drawn.has(st.id)));
+  return cls.students.filter(st => statusOf(sess, st.id).s !== '결석' &&!($('#noRepeat').checked && drawn.has(st.id)));
 }
 function renderDraw(){
   const cls = curClass(); const sess = getSess(false); const p = pool();
@@ -415,7 +380,7 @@ $('#clearDrawn').onclick = () => {
   $('#bigName').textContent = '?'; $('#bigName').className = 'big'; $('#pickedList').innerHTML = '';
   renderDraw();
 };
-['#noRepeat', '#incLate'].forEach(s => $(s).onchange = renderDraw);
+$('#noRepeat').onchange = renderDraw;
 
 // ---------- 기록 ----------
 function classSessions(){
@@ -425,19 +390,20 @@ function classSessions(){
     .filter(r => r.classId === cls.id && (!from || r.date >= from) && (!to || r.date <= to))
     .sort((a, b) => a.date === b.date ? a.period - b.period : a.date < b.date ? -1 : 1);
 }
+function absTally(cls, sessions){
+  const t = Object.fromEntries(cls.students.map(s => [s.id, 0]));
+  sessions.forEach(r => Object.entries(r.marks).forEach(([sid, m]) => { if (sid in t && m.s === '결석') t[sid]++; }));
+  return t;
+}
 function renderRec(){
   const cls = curClass();
   $('#recTitle').textContent = cls ? `${cls.name} 누계` : '';
   if (!cls) { $('#sumTable').innerHTML = ''; $('#logList').innerHTML = '<div class="empty">반이 없어요.</div>'; return; }
   const sessions = classSessions();
-  const tally = {};
-  cls.students.forEach(s => tally[s.id] = { 결석: 0, 지각: 0, 조퇴: 0, 결과: 0 });
-  sessions.forEach(r => Object.entries(r.marks).forEach(([sid, m]) => { if (tally[sid] && m.s !== '출석') tally[sid][m.s]++; }));
-  $('#sumTable').innerHTML = `<tr><th>번호</th><th>이름</th>${STATUSES.slice(1).map(s => `<th style="text-align:center">${s}</th>`).join('')}</tr>` +
-    cls.students.map(s => `<tr><td>${esc(s.no || '')}</td><td>${esc(s.name)}</td>${STATUSES.slice(1).map(k => {
-      const v = tally[s.id][k]; return `<td class="n">${v ? `<span class="chip c-${k}">${v}</span>` : '·'}</td>`;
-    }).join('')}</tr>`).join('') +
-    `<tr><td colspan="6" class="muted">기록된 수업 ${sessions.length}회</td></tr>`;
+  const tally = absTally(cls, sessions);
+  $('#sumTable').innerHTML = `<tr><th>번호</th><th>이름</th><th style="text-align:center">결석</th></tr>` +
+    cls.students.map(s => `<tr><td>${esc(s.no || '')}</td><td>${esc(s.name)}</td><td class="n">${tally[s.id] ? `<span class="chip c-결석">${tally[s.id]}</span>` : '·'}</td></tr>`).join('') +
+    `<tr><td colspan="3" class="muted">기록된 수업 ${sessions.length}회</td></tr>`;
 
   const byId = Object.fromEntries(cls.students.map(s => [s.id, s]));
   const list = sessions.slice().reverse();
@@ -470,10 +436,9 @@ $('#csvBtn').onclick = () => {
   classSessions().forEach(r => Object.entries(r.marks).forEach(([sid, m]) => {
     if (byId[sid] && m.s !== '출석') rows.push([r.date, r.period, byId[sid].no || '', byId[sid].name, m.s, m.r || '', m.m || '']);
   }));
-  rows.push([]); rows.push(['번호', '이름', '결석', '지각', '조퇴', '결과']);
-  const t = {}; cls.students.forEach(s => t[s.id] = [0, 0, 0, 0]);
-  classSessions().forEach(r => Object.entries(r.marks).forEach(([sid, m]) => { const i = STATUSES.indexOf(m.s) - 1; if (t[sid] && i >= 0) t[sid][i]++; }));
-  cls.students.forEach(s => rows.push([s.no || '', s.name, ...t[s.id]]));
+  rows.push([]); rows.push(['번호', '이름', '결석 횟수']);
+  const t = absTally(cls, classSessions());
+  cls.students.forEach(s => rows.push([s.no || '', s.name, t[s.id]]));
   download(`${cls.name}_출결_${todayStr()}.csv`, '﻿' + rows.map(r => r.map(v => csvCell(String(v))).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
 };
 
