@@ -431,14 +431,13 @@ function download(name, text, type){
 const csvCell = v => /[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v;
 $('#csvBtn').onclick = () => {
   const cls = curClass(); if (!cls) return;
-  const byId = Object.fromEntries(cls.students.map(s => [s.id, s]));
-  const rows = [['날짜', '교시', '번호', '이름', '구분', '사유', '메모']];
-  classSessions().forEach(r => Object.entries(r.marks).forEach(([sid, m]) => {
-    if (byId[sid] && m.s !== '출석') rows.push([r.date, r.period, byId[sid].no || '', byId[sid].name, m.s, m.r || '', m.m || '']);
-  }));
-  rows.push([]); rows.push(['번호', '이름', '결석 횟수']);
-  const t = absTally(cls, classSessions());
-  cls.students.forEach(s => rows.push([s.no || '', s.name, t[s.id]]));
+  // 학생(행) × 수업 날짜·교시(열) 출결표: 결석이면 X
+  const sessions = classSessions();
+  const t = absTally(cls, sessions);
+  const rows = [['번호', '이름', ...sessions.map(r => `${+r.date.slice(5, 7)}/${+r.date.slice(8)} ${r.period}교시`), '결석 합계']];
+  cls.students.forEach(s => rows.push([s.no || '', s.name,
+    ...sessions.map(r => (r.marks[s.id] && r.marks[s.id].s === '결석') ? 'X' : ''), t[s.id]]));
+  rows.push(['', '결석 인원', ...sessions.map(r => cls.students.filter(s => r.marks[s.id] && r.marks[s.id].s === '결석').length), '']);
   download(`${cls.name}_출결_${todayStr()}.csv`, '﻿' + rows.map(r => r.map(v => csvCell(String(v))).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
 };
 
