@@ -119,7 +119,15 @@ td.n{text-align:center;font-variant-numeric:tabular-nums}
 .scroll{overflow-x:auto}
 .log{border-bottom:1px solid var(--line);padding:9px 0;display:flex;gap:10px;align-items:flex-start}
 .log:last-child{border-bottom:none}
-.log .when{font-weight:700;min-width:118px}
+.log .when{font-weight:700;min-width:180px}
+.donebar{margin-top:14px}
+.donebar .btn.primary{width:100%;min-height:48px;font-size:16px}
+.donebar .ok{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok);border-radius:10px;padding:10px 14px;font-weight:700}
+.donebar .ok::before{content:"";width:16px;height:9px;border-left:3px solid currentColor;border-bottom:3px solid currentColor;transform:rotate(-45deg) translateY(-3px)}
+.donebar .ok .btn{margin-left:auto;font-weight:600;color:var(--ink)}
+.badge{font-size:12px;font-weight:700;border-radius:6px;padding:2px 7px;margin-left:6px;vertical-align:1px}
+.badge.done{background:var(--ok-bg);color:var(--ok)}
+.badge.todo{background:var(--late-bg);color:var(--late)}
 .log .what{flex:1;font-size:14px}
 .empty{padding:30px 10px;text-align:center;color:var(--muted)}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:10px;font-size:14px;z-index:20;opacity:0;transition:opacity .2s;pointer-events:none}
@@ -163,6 +171,7 @@ td.n{text-align:center;font-variant-numeric:tabular-nums}
       </div>
       <p class="muted" style="margin:8px 0 0">결석한 학생을 한 번 누르면 <b style="color:var(--abs)">X</b>, 다시 누르면 취소돼요. 누르는 즉시 저장됩니다.</p>
       <div class="grid" id="stuGrid"></div>
+      <div class="donebar" id="doneBar"></div>
     </div>
   </section>
 
@@ -286,8 +295,18 @@ function getSess(create){
 function statusOf(sess, sid){ return (sess && sess.marks[sid]) ? sess.marks[sid] : { s: '출석' }; }
 function pruneSess(){
   const k = sessKey(), s = db.records[k];
-  if (s && !Object.keys(s.marks).length && !s.drawn.length && !s.checked) delete db.records[k];
+  if (s && !Object.keys(s.marks).length && !s.drawn.length && !s.checked && !s.done) delete db.records[k];
 }
+// 교시 목록에 오늘(선택한 날짜) 완료 여부 표시
+function fillPeriods(){
+  const sel = $('#periodSel'), v = sel.value || '1', base = `${$('#classSel').value}|${$('#dateIn').value}|`;
+  sel.innerHTML = Array.from({ length: PERIODS }, (_, i) => {
+    const r = db.records[base + (i + 1)];
+    return `<option value="${i + 1}">${i + 1}교시${r && r.done ? ' · 완료' : ''}</option>`;
+  }).join('');
+  sel.value = v;
+}
+const hhmm = ts => { const d = new Date(ts); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
 function fillCtx(){
   const sel = $('#classSel');
@@ -303,7 +322,7 @@ function renderAtt(){
   const cls = curClass(), grid = $('#stuGrid');
   if (!cls) {
     grid.innerHTML = `<div class="empty" style="grid-column:1/-1">아직 반이 없어요. <b>명렬표 · 백업</b> 탭에서 반을 만들고 학생 명단을 붙여넣으세요.</div>`;
-    $('#attChips').innerHTML = ''; return;
+    $('#attChips').innerHTML = ''; $('#doneBar').innerHTML = ''; return;
   }
   const sess = getSess(false);
   const cnt = Object.fromEntries(STATUSES.map(s => [s, 0]));
@@ -315,7 +334,20 @@ function renderAtt(){
   $('#attChips').innerHTML = `<span class="chip">재적 ${cls.students.length}</span>` +
     `<span class="chip c-출석">출석 ${cls.students.length - cnt['결석']}</span>` +
     (cnt['결석'] ? `<span class="chip c-결석">결석 ${cnt['결석']}</span>` : '');
+  $('#doneBar').innerHTML = sess && sess.done
+    ? `<div class="ok"><span>출석 체크 완료 · ${hhmm(sess.doneAt)} · 결석 ${cnt['결석']}명</span><button class="btn" id="undoDone">완료 취소</button></div>`
+    : `<button class="btn primary" id="markDone">출석 체크 완료</button>`;
 }
+$('#doneBar').onclick = e => {
+  if (e.target.id === 'markDone') {
+    const s = getSess(true); s.done = true; s.doneAt = Date.now(); s.checked = true;
+    save(); fillPeriods(); renderAtt(); toast(`${$('#periodSel').value}교시 출석 체크를 완료했어요`);
+  }
+  if (e.target.id === 'undoDone') {
+    const s = getSess(false); if (!s) return;
+    delete s.done; delete s.doneAt; save(); fillPeriods(); renderAtt();
+  }
+};
 
 $('#stuGrid').onclick = e => {
   const b = e.target.closest('.stu'); if (!b) return;
@@ -415,13 +447,13 @@ function renderRec(){
     const marks = Object.entries(r.marks).filter(([sid]) => byId[sid]).map(([sid, m]) =>
       `<span class="chip c-${m.s}">${m.s}</span> ${esc(byId[sid].name)}${m.r ? `(${esc(m.r)})` : ''}${m.m ? ` <span class="muted">${esc(m.m)}</span>` : ''}`);
     const key = `${r.classId}|${r.date}|${r.period}`;
-    return `<div class="log"><div class="when">${r.date} ${r.period}교시</div><div class="what">${marks.length ? marks.join('&nbsp;&nbsp; ') : '<span class="muted">전원 출석</span>'}</div>
+    return `<div class="log"><div class="when">${r.date} ${r.period}교시${r.done ? '<span class="badge done">완료</span>' : '<span class="badge todo">미완료</span>'}</div><div class="what">${marks.length ? marks.join('&nbsp;&nbsp; ') : '<span class="muted">전원 출석</span>'}</div>
       <button class="btn" data-go="${esc(key)}">열기</button><button class="btn danger" data-del="${esc(key)}">삭제</button></div>`;
   }).join('') : '<div class="empty">아직 기록이 없어요.</div>';
 }
 $('#logList').onclick = e => {
   const g = e.target.closest('[data-go]'), d = e.target.closest('[data-del]');
-  if (g) { const r = db.records[g.dataset.go]; $('#dateIn').value = r.date; $('#periodSel').value = r.period; switchTab('att'); }
+  if (g) { const r = db.records[g.dataset.go]; $('#dateIn').value = r.date; fillPeriods(); $('#periodSel').value = r.period; switchTab('att'); }
   if (d && confirm('이 수업 기록을 삭제할까요?')) { delete db.records[d.dataset.del]; save(); renderRec(); }
 };
 ['#recFrom', '#recTo'].forEach(s => $(s).onchange = renderRec);
@@ -550,6 +582,7 @@ function switchTab(t){
   refresh();
 }
 function refresh(){
+  fillPeriods();
   if (curTab === 'att') renderAtt();
   if (curTab === 'draw') renderDraw();
   if (curTab === 'rec') renderRec();
@@ -559,15 +592,16 @@ document.querySelector('nav.tabs').onclick = e => { const b = e.target.closest('
 function ctxChanged(){
   db.settings.lastClassId = $('#classSel').value;
   db.settings.lastPeriod = $('#periodSel').value; save();
+  fillPeriods();
   $('#bigName').textContent = '?'; $('#bigName').className = 'big'; $('#pickedList').innerHTML = '';
   refresh();
 }
 ['#classSel', '#dateIn', '#periodSel'].forEach(s => $(s).onchange = ctxChanged);
 
-$('#periodSel').innerHTML = Array.from({ length: PERIODS }, (_, i) => `<option value="${i + 1}">${i + 1}교시</option>`).join('');
-$('#periodSel').value = +db.settings.lastPeriod <= PERIODS ? db.settings.lastPeriod : 1;
+$('#periodSel').innerHTML = `<option value="${+db.settings.lastPeriod <= PERIODS ? db.settings.lastPeriod : 1}"></option>`;
 $('#dateIn').value = todayStr();
 fillCtx();
+fillPeriods();
 
 const themes = ['auto', 'light', 'dark'];
 function applyTheme(){
